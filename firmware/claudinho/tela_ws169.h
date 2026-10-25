@@ -158,9 +158,9 @@ inline bool e32Toque(bool& apertou, int& x, int& y) {
     Wire.beginTransmission(0x15); Wire.write(0x02);
     if (Wire.endTransmission(false) == 0 && Wire.requestFrom(0x15, 5) == 5) {
       for (int i = 0; i < 5; i++) d[i] = Wire.read();
-      if ((d[0] & 0x0F) > 0) {
+      int tx = ((d[1] & 0x0F) << 8) | d[2], ty = ((d[3] & 0x0F) << 8) | d[4];   // 0..239 x 0..279, retrato
+      if ((d[0] & 0x0F) > 0 && (d[0] & 0x0F) <= 2 && tx < 240 && ty < 280) {      // fora da tela = toque fantasma
         agora = true;
-        int tx = ((d[1] & 0x0F) << 8) | d[2], ty = ((d[3] & 0x0F) << 8) | d[4];   // 0..239 x 0..279, retrato
         ux = constrain((int)(ty / WS_ESCALA_X), 0, 319); uy = constrain(239 - tx, 0, 239);   // tela deitada
       }
     }
