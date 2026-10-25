@@ -29,6 +29,7 @@ exec "$BASE/venv/bin/python" "$BASE/ponte_ble.py" 2>>"$BASE/ponte.log"
 EOP
 chmod +x "$APP/Contents/MacOS/ponte"
 codesign --force --deep -s - "$APP" 2>/dev/null || true
+mkdir -p "$HOME/Library/LaunchAgents"
 PL="$HOME/Library/LaunchAgents/com.claudinho.ponte.plist"
 cat > "$PL" <<EOP
 <?xml version="1.0" encoding="UTF-8"?>
