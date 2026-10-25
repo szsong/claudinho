@@ -3276,7 +3276,7 @@ void setup() {
   if (corRostoAtual != COR_ROSTO) mudaPagina(0);    // cor gravada: redesenha o rosto que ja apareceu laranja
 #ifdef CLAUDINHO_BLE
   bleInicia();                  // eventos tambem chegam por Bluetooth
-  if (cfgSsid.isEmpty()) {      // sem Wi-Fi configurado: so Bluetooth
+  if (true) {                   // nesta placa o Bluetooth substitui o Wi-Fi (nao sobra RAM para os dois)
     wifiAtivo = false; servidor = SRV_INICIANDO;
     imprimeInfo(); mudaPagina(0);
     return;
