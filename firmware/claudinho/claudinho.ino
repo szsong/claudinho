@@ -33,6 +33,9 @@
 #include <LittleFS.h>         // sons enviados pela rede (claudinho.sh som envia)
 #include "soc/rtc_io_reg.h"   // escrita direta no DAC do IO26 (rapida)
 #endif
+#ifdef CLAUDINHO_BLE
+#include "ble_claudinho.h"   // transporte Bluetooth (no lugar do Wi-Fi)
+#endif
 #include "textos.h"        // textos da tela por idioma (gerado de idiomas/*.txt)
 #include "painel_web.h"    // a pagina do painel web (/painel)
 #include "hms_codigos.h"   // codigos HMS da Bambu (gerado por firmware/hms/gerar.py)      // avisos HMS da Bambu em portugues (gerado por firmware/hms/gerar.py)
@@ -2731,11 +2734,7 @@ void mesclaJanela(int& pct, long& reseta, JsonVariant j, long agora) {
 
 void recebeuLocal() { ultimoLocal = millis(); servidor = SRV_OK; }
 
-void webEstado() {
-  if (!autorizado()) { web.send(401, "text/plain", "segredo invalido\n"); return; }
-  if (demo) { web.send(200, "text/plain", "ok\n"); return; }
-  JsonDocument doc;
-  if (deserializeJson(doc, web.arg("plain"))) { web.send(400, "text/plain", "json invalido\n"); return; }
+void aplicaEstado(JsonDocument& doc) {
   if (!relogioValido()) ajustaRelogio(doc["enviado_em"].as<long>());
   long agora = time(nullptr);
   mesclaJanela(dados.h5, dados.h5r, doc["limites"]["cinco_horas"], agora);
@@ -2748,6 +2747,13 @@ void webEstado() {
   if (dados.d7r > agora) renovou7 = false;
   confereLimites();
   recebeuLocal();
+}
+void webEstado() {
+  if (!autorizado()) { web.send(401, "text/plain", "segredo invalido\n"); return; }
+  if (demo) { web.send(200, "text/plain", "ok\n"); return; }
+  JsonDocument doc;
+  if (deserializeJson(doc, web.arg("plain"))) { web.send(400, "text/plain", "json invalido\n"); return; }
+  aplicaEstado(doc);
   web.send(200, "text/plain", "ok\n");
 }
 
@@ -2788,11 +2794,8 @@ void webPainelJson() {
   web.send(200, "application/json", s);
 }
 
-void webEvento() {
-  if (!autorizado()) { web.send(401, "text/plain", "segredo invalido\n"); return; }
-  if (demo) { web.send(200, "text/plain", "ok\n"); return; }      // demonstracao: nada atropela o roteiro
-  JsonDocument doc;
-  if (deserializeJson(doc, web.arg("plain"))) { web.send(400, "text/plain", "json invalido\n"); return; }
+void aplicaEvento(JsonDocument& doc) {
+  if (!relogioValido() && doc["enviado_em"].is<long>()) ajustaRelogio(doc["enviado_em"].as<long>());
   const char* tipo = doc["tipo"] | ""; const char* humor = doc["humor"] | ""; const char* sessao = doc["sessao"] | "";
   strlcpy(acaoEvento, doc["acao"] | "", sizeof acaoEvento); forcaCena = doc["forca"] | false;
   if (!strcmp(tipo, "fim")) tiraSessao(sessao); else marcaSessao(sessao);
@@ -2803,6 +2806,13 @@ void webEvento() {
   trataEvento(tipo, humor);
   somDoEvento(tipo);
   historico(tipo, humor[0] ? humor : acaoEvento, (int)caraDesejada());
+}
+void webEvento() {
+  if (!autorizado()) { web.send(401, "text/plain", "segredo invalido\n"); return; }
+  if (demo) { web.send(200, "text/plain", "ok\n"); return; }      // demonstracao: nada atropela o roteiro
+  JsonDocument doc;
+  if (deserializeJson(doc, web.arg("plain"))) { web.send(400, "text/plain", "json invalido\n"); return; }
+  aplicaEvento(doc);
   web.send(200, "text/plain", "ok\n");
 }
 
@@ -3146,6 +3156,9 @@ String macTexto() { return WiFi.macAddress(); }
 void imprimeInfo() {
   JsonDocument d;                      // ArduinoJson escapa SSID com aspas ou barra
   d["versao"] = VERSAO; d["placa"] = PLACA_NOME; d["mac"] = macTexto();
+#ifdef CLAUDINHO_BLE
+  d["ble"] = bleNome();
+#endif
   d["ip"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String("");
   d["wifi"] = cfgSsid.isEmpty() ? "sem config" : (WiFi.status() == WL_CONNECTED ? "conectado" : "sem conexao");
   d["ssid"] = cfgSsid; d["token"] = cfgToken.length() >= 16;
@@ -3222,6 +3235,7 @@ bool conectaWifi() {
 }
 
 // ---------------------------------------------------------------- arduino
+bool wifiAtivo = true;                 // false: so Bluetooth (sem Wi-Fi configurado)
 void setup() {
   Serial.begin(115200);
   pinMode(BOTAO_BOOT, INPUT_PULLUP);
@@ -3260,6 +3274,14 @@ void setup() {
   if (!somFs) registra("som: memoria de sons indisponivel");
 #endif
   if (corRostoAtual != COR_ROSTO) mudaPagina(0);    // cor gravada: redesenha o rosto que ja apareceu laranja
+#ifdef CLAUDINHO_BLE
+  bleInicia();                  // eventos tambem chegam por Bluetooth
+  if (cfgSsid.isEmpty()) {      // sem Wi-Fi configurado: so Bluetooth
+    wifiAtivo = false; servidor = SRV_INICIANDO;
+    imprimeInfo(); mudaPagina(0);
+    return;
+  }
+#endif
   WiFi.mode(WIFI_STA);          // para o MAC e o SCAN funcionarem mesmo sem config
   if (cfgSsid.isEmpty()) {
     String mac = macTexto();
@@ -3280,14 +3302,17 @@ void setup() {
 }
 
 void loop() {
-  web.handleClient();
+#ifdef CLAUDINHO_BLE
+  bleCuida();
+#endif
+  if (wifiAtivo) web.handleClient();
   leSerialConfig();
   leToque();
-  if (WiFi.status() != WL_CONNECTED) {
+  if (wifiAtivo && WiFi.status() != WL_CONNECTED) {
     static unsigned long ultimaTentativa = 0;
     if (millis() - ultimaTentativa > 10000) { ultimaTentativa = millis(); WiFi.reconnect(); }
     servidor = SRV_SEM_WIFI;
-  } else if (servidor == SRV_SEM_WIFI) servidor = SRV_INICIANDO;
+  } else if (wifiAtivo && servidor == SRV_SEM_WIFI) servidor = SRV_INICIANDO;
   cuidaManutencao();
   if (pagina != 0 && !demo && !(manter && pagina == paginaManter) && millis() - paginaDesde > paginaDur) {
     if (pagina == 2) manutPedidaEm = 0;
