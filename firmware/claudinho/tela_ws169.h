@@ -15,16 +15,19 @@
 #pragma once
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
+#include <Wire.h>
 #include "fontes_e32.h"
 
 #if defined(PLACA_WS169_V1)
 static const int WS_TRAVA = 35;   // segurar em nivel alto: continua ligada na bateria
+static const int WS_PWR = 36;     // botao PWR (nivel baixo = apertado); divide o pino com a PSRAM octal
 #else
 static const int WS_TRAVA = 41;
+static const int WS_PWR = 40;
 #endif
 
 class PainelWs : public lgfx::LGFX_Device {
-  lgfx::Panel_ST7789 painel; lgfx::Bus_SPI bus; lgfx::Light_PWM luz; lgfx::Touch_CST816S toque;
+  lgfx::Panel_ST7789 painel; lgfx::Bus_SPI bus; lgfx::Light_PWM luz;
 public:
   PainelWs() {
     { auto c = bus.config();
@@ -39,12 +42,6 @@ public:
       painel.config(c); }
     { auto c = luz.config(); c.pin_bl = 15; c.invert = false; c.freq = 5000; c.pwm_channel = 0;
       luz.config(c); painel.setLight(&luz); }
-    { auto c = toque.config();
-      c.i2c_port = 0; c.i2c_addr = 0x15; c.pin_sda = 11; c.pin_scl = 10; c.freq = 400000;
-      c.pin_int = 14; c.pin_rst = 13;
-      c.x_min = 0; c.x_max = 239; c.y_min = 0; c.y_max = 279; c.offset_rotation = 0;
-      c.bus_shared = false;
-      toque.config(c); painel.setTouch(&toque); }
     setPanel(&painel);
   }
 };
@@ -61,6 +58,7 @@ public:
 };
 static TelaWs e32;
 static int e32Fonte = -1;
+static bool wsToqueOk = false;
 static volatile bool wsSujo = true;   // o sprite mudou desde a ultima copia
 
 static const float WS_ESCALA_X = 280.0f / 320.0f;
@@ -89,8 +87,13 @@ inline void e32Inicia() {
   wsPainel.setRotation(1);                 // deitada, 280 x 240
   wsPainel.setBrightness(255);
   wsPainel.fillScreen(0);
-  // O CST816 dorme sozinho entre toques e para de responder no I2C: desliga isso.
-  lgfx::i2c::writeRegister8(0, 0x15, 0xFE, 0x01, 0, 400000);
+  pinMode(WS_PWR, INPUT_PULLUP);
+  // Toque CST816 (0x15) lido direto pelo Wire, como no port do claude-desktop-buddy.
+  Wire.begin(11, 10); Wire.setClock(400000);
+  pinMode(13, OUTPUT); digitalWrite(13, LOW); delay(10); digitalWrite(13, HIGH); delay(50);
+  Wire.beginTransmission(0x15); wsToqueOk = Wire.endTransmission() == 0;
+  if (wsToqueOk) { Wire.beginTransmission(0x15); Wire.write(0xFE); Wire.write(0x01); Wire.endTransmission(); }   // nao dormir sozinho
+  Serial.printf("toque: cst816 %s\n", wsToqueOk ? "achado" : "NAO achado");
   e32.setPsram(false);
   e32.setColorDepth(16);
   if (!e32.createSprite(320, 240)) {       // 150 KB; se faltar RAM, 8 bits (75 KB, cores aproximadas)
@@ -144,13 +147,25 @@ inline void e32Cmd(const char* c) {
 
 // Toque: devolve true quando o estado muda (apertou = true / soltou = false),
 // com a posicao em x, y ja nas coordenadas de 320x240. Le a cada 15 ms, no maximo.
+// O botao PWR conta como um toque no centro da tela (so pressionar e soltar).
 inline bool e32Toque(bool& apertou, int& x, int& y) {
-  static bool tocando = false; static int ux = 0, uy = 0; static unsigned long ult = 0;
+  static bool tocando = false; static int ux = 160, uy = 120; static unsigned long ult = 0;
   if (millis() - ult < 15) return false;
   ult = millis();
-  lgfx::touch_point_t p;
-  bool agora = wsPainel.getTouch(&p) > 0;
-  if (agora) { ux = constrain((int)(p.x / WS_ESCALA_X), 0, 319); uy = constrain((int)p.y, 0, 239); }
+  bool agora = false;
+  if (wsToqueOk) {
+    uint8_t d[5] = {0};
+    Wire.beginTransmission(0x15); Wire.write(0x02);
+    if (Wire.endTransmission(false) == 0 && Wire.requestFrom(0x15, 5) == 5) {
+      for (int i = 0; i < 5; i++) d[i] = Wire.read();
+      if ((d[0] & 0x0F) > 0) {
+        agora = true;
+        int tx = ((d[1] & 0x0F) << 8) | d[2], ty = ((d[3] & 0x0F) << 8) | d[4];   // 0..239 x 0..279, retrato
+        ux = constrain((int)(ty / WS_ESCALA_X), 0, 319); uy = constrain(239 - tx, 0, 239);   // tela deitada
+      }
+    }
+  }
+  if (!agora && digitalRead(WS_PWR) == LOW) { agora = true; ux = 160; uy = 120; }
   if (agora == tocando) return false;
   tocando = agora; apertou = agora; x = ux; y = uy;
   return true;
