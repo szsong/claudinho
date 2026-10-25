@@ -16,6 +16,7 @@ from bleak import BleakClient, BleakScanner
 
 PORTA = 8765
 NOME = "Claudinho-"
+SERVICO = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
 RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
 fila: "asyncio.Queue[bytes]" = asyncio.Queue(maxsize=50)
 estado = {"conectada": False}
@@ -72,7 +73,7 @@ async def ble():
     while True:
         try:
             log("procurando", NOME + "...")
-            disp = await BleakScanner.find_device_by_filter(lambda d, a: (d.name or a.local_name or "").startswith(NOME), timeout=15)
+            disp = await BleakScanner.find_device_by_filter(lambda d, a: (a.local_name or d.name or "").startswith(NOME) or SERVICO in [u.lower() for u in a.service_uuids], timeout=15)
             if not disp:
                 continue
             log("achei", disp.name, disp.address)

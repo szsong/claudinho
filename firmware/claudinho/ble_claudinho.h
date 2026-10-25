@@ -64,8 +64,14 @@ inline void bleInicia() {
   rx->setCallbacks(new BleRxCb());
   svc->start();
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-  adv->addServiceUUID(BLE_SERVICO);
-  adv->setName(nome);
+  // O UUID de 128 bits ocupa 18 dos 31 bytes do anuncio: o nome vai na resposta de busca.
+  NimBLEAdvertisementData anuncio, resposta;
+  anuncio.setFlags(BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP);
+  anuncio.addServiceUUID(BLE_SERVICO);
+  resposta.setName(nome);
+  adv->setAdvertisementData(anuncio);
+  adv->setScanResponseData(resposta);
+  adv->enableScanResponse(true);
   adv->start();
   Serial.printf("ble: anunciando como %s\n", nome);
 }
