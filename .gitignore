@@ -6,3 +6,4 @@ __pycache__/
 # configuracao local e segredos nunca vao para o repositorio
 *.env
 .cfg.*
+firmware/.pio/

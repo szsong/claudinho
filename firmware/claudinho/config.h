@@ -5,7 +5,15 @@
 
 // Placa. A E32R28T (ESP32 com tela embutida) e escolhida na compilacao com
 // -DPLACA_E32R28T (o compilar.sh faz isso); as outras usam o Nextion.
-#if defined(PLACA_E32R28T)
+#if defined(PLACA_WS169)
+  // Waveshare ESP32-S3-Touch-LCD-1.69: tela ST7789 240x280 + toque CST816 na
+  // propria placa (tela_ws169.h), sem Nextion. Sem som nem bateria por enquanto.
+  #define PLACA_NOME  "ws169s3"
+  #define NEXTION_TX  -1
+  #define NEXTION_RX  -1
+  #define WIFI_POTENCIA_REDUZIDA 0
+  #define BOTAO_BOOT  0
+#elif defined(PLACA_E32R28T)
   // E32R28T: tela ST7789 + toque no proprio ESP32 (tela_e32.h), sem Nextion
   #define PLACA_NOME  "e32r28t"
   #define NEXTION_TX  -1
@@ -26,6 +34,10 @@
   #define NEXTION_RX  18
   #define WIFI_POTENCIA_REDUZIDA 0
   #define BOTAO_BOOT  0
+#endif
+// Placas que desenham direto na propria tela (sem Nextion)
+#if defined(PLACA_E32R28T) || defined(PLACA_WS169)
+  #define TELA_DIRETA
 #endif
 #define NEXTION_BAUD        9600     // de fabrica
 #define NEXTION_BAUD_RAPIDO 115200   // pedido no boot (nao persiste no Nextion)

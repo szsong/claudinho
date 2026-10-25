@@ -24,10 +24,17 @@
 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
-#ifdef PLACA_E32R28T
+#if defined(PLACA_WS169)
+#include "tela_ws169.h"      // a Waveshare S3 1.69" desenha direto (sem Nextion)
+#elif defined(PLACA_E32R28T)
 #include "tela_e32.h"        // a E32R28T desenha direto (sem Nextion)
+#endif
+#ifdef PLACA_E32R28T
 #include <LittleFS.h>         // sons enviados pela rede (claudinho.sh som envia)
 #include "soc/rtc_io_reg.h"   // escrita direta no DAC do IO26 (rapida)
+#endif
+#ifdef CLAUDINHO_BLE
+#include "ble_claudinho.h"   // transporte Bluetooth (no lugar do Wi-Fi)
 #endif
 #include "textos.h"        // textos da tela por idioma (gerado de idiomas/*.txt)
 #include "painel_web.h"    // a pagina do painel web (/painel)
@@ -204,7 +211,7 @@ struct BlocoJanela {
   void limpa() { rotulo.limpa(); pct.limpa(); reseta.limpa(); resta.limpa(); barra.limpa(); }
 };
 BlocoJanela b5h(22), b7d(96);
-#ifdef PLACA_E32R28T
+#ifdef TELA_DIRETA
 // Tela 1 na E32R28T: tres aneis (ver anelJanela)
 struct Anel {
   int cx;
@@ -226,7 +233,7 @@ Anel aneis[3] = {Anel(56), Anel(160), Anel(264)};
 // buffer e ele descarta pedacos: sobra lixo na tela. Cada comando espera o
 // anterior render; "cls" (tela inteira) ganha folga maior.
 void nexCmd(const char* cmd) {
-#ifdef PLACA_E32R28T
+#ifdef TELA_DIRETA
   e32Cmd(cmd); return;                 // E32R28T: desenha direto, sem serial
 #endif
   nex.print(cmd);
@@ -664,7 +671,7 @@ void desenhaMoldura() {
     escreve(0, 196, 320, 20, FONTE_P,  COR_APAGADO, COR_FUNDO, 1, tx(T_MANUT_OU_BOOT));
   } else {
     limpaTela(COR_FUNDO);
-#ifdef PLACA_E32R28T
+#ifdef TELA_DIRETA
     for (Anel& a : aneis) a.esquece();
 #else
     preenche(6, b5h.y, 308, 72, COR_BLOCO);
@@ -976,7 +983,7 @@ void desenhaCabecalho() {
   snprintf(t, sizeof t, "CLAUDE CODE");
   cTitulo.mostra(t, COR_OURO);
   // ctx: quanto do contexto da conversa (do ultimo terminal que mandou numeros) ja foi usado
-#ifdef PLACA_E32R28T
+#ifdef TELA_DIRETA
   if (false) {                           // na E32 o contexto tem anel proprio
 #else
   if (dados.ok && dados.ctx > 0) {
@@ -1031,7 +1038,7 @@ void desenhaJanela(BlocoJanela& b, const char* nome, int pct, long reseta, bool 
   b.barra.mostra(dados.ok ? pct : 0, corPct(pct));
 }
 
-#ifdef PLACA_E32R28T
+#ifdef TELA_DIRETA
 // ---- E32R28T: o consumo em tres aneis (5 horas, 7 dias e o contexto da
 // sessao), lado a lado, com o numero no meio. A placa desenha arcos direto;
 // no Nextion seguem as barras. O contexto ganha cor antes dos 100 %, porque o
@@ -1069,7 +1076,7 @@ void anelJanela(Anel& a, const char* rotulo, int pct, long reseta) {
 void desenha() {
   if (pagina == 0 || pagina >= 2) return;   // olhos, manutencao ou paleta: nada a atualizar
   desenhaCabecalho();
-#ifdef PLACA_E32R28T
+#ifdef TELA_DIRETA
   anelJanela(aneis[0], tx(T_USO_ANEL_5H), dados.h5, dados.h5r);
   anelJanela(aneis[1], tx(T_USO_ANEL_7D), dados.d7, dados.d7r);
   {
@@ -2612,7 +2619,7 @@ void cuidaManutencao() {
 // ---------------------------------------------------------------- toque
 void leToque() {
   static uint8_t buf[9]; static int n = 0; static unsigned long pressaoEm = 0;
-#ifdef PLACA_E32R28T
+#ifdef TELA_DIRETA
   bool apertou; int ex, ey;
   while (e32Toque(apertou, ex, ey)) {  // o toque da E32R28T vira o mesmo pacote do Nextion
     buf[1] = ex >> 8; buf[2] = ex & 0xFF; buf[3] = ey >> 8; buf[4] = ey & 0xFF; buf[5] = apertou ? 1 : 0; (void)n;
@@ -2663,7 +2670,7 @@ long tftEsperaRetorno(uint32_t timeout) {
 }
 
 bool tftHandshake(long tamanho) {
-#ifdef PLACA_E32R28T
+#ifdef TELA_DIRETA
   registra("tft: esta placa nao tem Nextion"); return false;
 #endif
   char cmd[48]; snprintf(cmd, sizeof cmd, "whmi-wris %ld,%d,1", tamanho, NEXTION_BAUD_RAPIDO);
@@ -2727,11 +2734,7 @@ void mesclaJanela(int& pct, long& reseta, JsonVariant j, long agora) {
 
 void recebeuLocal() { ultimoLocal = millis(); servidor = SRV_OK; }
 
-void webEstado() {
-  if (!autorizado()) { web.send(401, "text/plain", "segredo invalido\n"); return; }
-  if (demo) { web.send(200, "text/plain", "ok\n"); return; }
-  JsonDocument doc;
-  if (deserializeJson(doc, web.arg("plain"))) { web.send(400, "text/plain", "json invalido\n"); return; }
+void aplicaEstado(JsonDocument& doc) {
   if (!relogioValido()) ajustaRelogio(doc["enviado_em"].as<long>());
   long agora = time(nullptr);
   mesclaJanela(dados.h5, dados.h5r, doc["limites"]["cinco_horas"], agora);
@@ -2744,6 +2747,13 @@ void webEstado() {
   if (dados.d7r > agora) renovou7 = false;
   confereLimites();
   recebeuLocal();
+}
+void webEstado() {
+  if (!autorizado()) { web.send(401, "text/plain", "segredo invalido\n"); return; }
+  if (demo) { web.send(200, "text/plain", "ok\n"); return; }
+  JsonDocument doc;
+  if (deserializeJson(doc, web.arg("plain"))) { web.send(400, "text/plain", "json invalido\n"); return; }
+  aplicaEstado(doc);
   web.send(200, "text/plain", "ok\n");
 }
 
@@ -2784,11 +2794,8 @@ void webPainelJson() {
   web.send(200, "application/json", s);
 }
 
-void webEvento() {
-  if (!autorizado()) { web.send(401, "text/plain", "segredo invalido\n"); return; }
-  if (demo) { web.send(200, "text/plain", "ok\n"); return; }      // demonstracao: nada atropela o roteiro
-  JsonDocument doc;
-  if (deserializeJson(doc, web.arg("plain"))) { web.send(400, "text/plain", "json invalido\n"); return; }
+void aplicaEvento(JsonDocument& doc) {
+  if (!relogioValido() && doc["enviado_em"].is<long>()) ajustaRelogio(doc["enviado_em"].as<long>());
   const char* tipo = doc["tipo"] | ""; const char* humor = doc["humor"] | ""; const char* sessao = doc["sessao"] | "";
   strlcpy(acaoEvento, doc["acao"] | "", sizeof acaoEvento); forcaCena = doc["forca"] | false;
   if (!strcmp(tipo, "fim")) tiraSessao(sessao); else marcaSessao(sessao);
@@ -2799,6 +2806,13 @@ void webEvento() {
   trataEvento(tipo, humor);
   somDoEvento(tipo);
   historico(tipo, humor[0] ? humor : acaoEvento, (int)caraDesejada());
+}
+void webEvento() {
+  if (!autorizado()) { web.send(401, "text/plain", "segredo invalido\n"); return; }
+  if (demo) { web.send(200, "text/plain", "ok\n"); return; }      // demonstracao: nada atropela o roteiro
+  JsonDocument doc;
+  if (deserializeJson(doc, web.arg("plain"))) { web.send(400, "text/plain", "json invalido\n"); return; }
+  aplicaEvento(doc);
   web.send(200, "text/plain", "ok\n");
 }
 
@@ -3142,6 +3156,9 @@ String macTexto() { return WiFi.macAddress(); }
 void imprimeInfo() {
   JsonDocument d;                      // ArduinoJson escapa SSID com aspas ou barra
   d["versao"] = VERSAO; d["placa"] = PLACA_NOME; d["mac"] = macTexto();
+#ifdef CLAUDINHO_BLE
+  d["ble"] = bleNome();
+#endif
   d["ip"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String("");
   d["wifi"] = cfgSsid.isEmpty() ? "sem config" : (WiFi.status() == WL_CONNECTED ? "conectado" : "sem conexao");
   d["ssid"] = cfgSsid; d["token"] = cfgToken.length() >= 16;
@@ -3218,6 +3235,7 @@ bool conectaWifi() {
 }
 
 // ---------------------------------------------------------------- arduino
+bool wifiAtivo = true;                 // false: so Bluetooth (sem Wi-Fi configurado)
 void setup() {
   Serial.begin(115200);
   pinMode(BOTAO_BOOT, INPUT_PULLUP);
@@ -3228,7 +3246,7 @@ void setup() {
   // Nextion acorda a 9600; pede a serial rapida e troca. Quando os dois ligam
   // juntos (ou depois de gravar um .tft) o Nextion leva ~1,5 s para ouvir:
   // espera, e manda o pedido duas vezes por garantia.
-#ifdef PLACA_E32R28T
+#ifdef TELA_DIRETA
   e32Inicia();
 #else
   nex.begin(NEXTION_BAUD, SERIAL_8N1, NEXTION_RX, NEXTION_TX);
@@ -3256,6 +3274,14 @@ void setup() {
   if (!somFs) registra("som: memoria de sons indisponivel");
 #endif
   if (corRostoAtual != COR_ROSTO) mudaPagina(0);    // cor gravada: redesenha o rosto que ja apareceu laranja
+#ifdef CLAUDINHO_BLE
+  bleInicia();                  // eventos tambem chegam por Bluetooth
+  if (true) {                   // nesta placa o Bluetooth substitui o Wi-Fi (nao sobra RAM para os dois)
+    wifiAtivo = false; servidor = SRV_INICIANDO;
+    imprimeInfo(); mudaPagina(0);
+    return;
+  }
+#endif
   WiFi.mode(WIFI_STA);          // para o MAC e o SCAN funcionarem mesmo sem config
   if (cfgSsid.isEmpty()) {
     String mac = macTexto();
@@ -3276,14 +3302,17 @@ void setup() {
 }
 
 void loop() {
-  web.handleClient();
+#ifdef CLAUDINHO_BLE
+  bleCuida();
+#endif
+  if (wifiAtivo) web.handleClient();
   leSerialConfig();
   leToque();
-  if (WiFi.status() != WL_CONNECTED) {
+  if (wifiAtivo && WiFi.status() != WL_CONNECTED) {
     static unsigned long ultimaTentativa = 0;
     if (millis() - ultimaTentativa > 10000) { ultimaTentativa = millis(); WiFi.reconnect(); }
     servidor = SRV_SEM_WIFI;
-  } else if (servidor == SRV_SEM_WIFI) servidor = SRV_INICIANDO;
+  } else if (wifiAtivo && servidor == SRV_SEM_WIFI) servidor = SRV_INICIANDO;
   cuidaManutencao();
   if (pagina != 0 && !demo && !(manter && pagina == paginaManter) && millis() - paginaDesde > paginaDur) {
     if (pagina == 2) manutPedidaEm = 0;
