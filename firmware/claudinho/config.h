@@ -9,6 +9,7 @@
   // Waveshare ESP32-S3-Touch-LCD-1.69: tela ST7789 240x280 + toque CST816 na
   // propria placa (tela_ws169.h), sem Nextion. Sem som nem bateria por enquanto.
   #define PLACA_NOME  "ws169s3"
+  #define MASCOTE      // Clawd inteiro + semaforo na tela de repouso
   #define NEXTION_TX  -1
   #define NEXTION_RX  -1
   #define WIFI_POTENCIA_REDUZIDA 0

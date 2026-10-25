@@ -194,7 +194,14 @@ Campo cRelogio = {240, 3,  68, 20, FONTE_P, 2, COR_FUNDO};
 Campo cRodape  = {0, 168, LARG, 17, FONTE_P, 1, COR_FUNDO};
 
 // Tela 0: grade de celulas de 8 px (40 x 30 celulas). Centros dos olhos.
-static const int CEL = 8;
+#ifdef MASCOTE
+// Clawd inteiro (corpo 160x120 com bracos e pernas) no lado esquerdo e, a direita,
+// a coluna do semaforo. As celulas do rosto viram de 4 px e a grade de 40 x 30
+// comeca em (CEL_X, CEL_Y); o resto da tela (fundo escuro) fica livre.
+static const int CEL = 4, CEL_X = 44, CEL_Y = 30;
+#else
+static const int CEL = 8, CEL_X = 0, CEL_Y = 0;
+#endif
 static const int OLHO_ESQ_X = 6, OLHO_DIR_X = 34, OLHO_Y = 11;    // em celulas: bem afastados, como no mascote; boca em y 21..24
 
 // Tela 1: blocos completos
@@ -310,7 +317,7 @@ bool congelado() { return dados.ok && dados.at > 0 && relogioValido() && (long)t
 // por linha. Antes de desenhar, apaga so a caixa que ocupou no quadro anterior.
 // Alem dos olhos: boca (so nas emocoes fortes) e "extras" (pontinhos, !, ?,
 // gota, lagrima, zzz), cada um com a sua caixa.
-void celula(int cx, int cy, int w, int h, uint16_t cor) { preenche(cx * CEL, cy * CEL, w * CEL, h * CEL, cor); }
+void celula(int cx, int cy, int w, int h, uint16_t cor) { preenche(CEL_X + cx * CEL, CEL_Y + cy * CEL, w * CEL, h * CEL, cor); }
 
 Caixa ultimaEsq, ultimaDir, ultimaExtra, ultimaBoca;
 // O que esta na tela agora (o simulador de PC compara com um desenho limpo).
@@ -419,6 +426,9 @@ void desenhaBoca(BocaP b, int dy = 0) {
 // ---- extras (uma caixa so, apagada e redesenhada a cada quadro animado)
 // Z em pixels, desenho 5x5 com unidade de u px (u = 4, 6, 8: pequeno, medio, grande)
 void zetaPx(int x, int y, int u, uint16_t cor) {
+#ifdef MASCOTE
+  x = CEL_X + x * CEL / 8; y = CEL_Y + y * CEL / 8; u = max(1, u * CEL / 8);   // coordenadas pensadas para celulas de 8 px
+#endif
   preenche(x, y, 5 * u, u, cor);
   for (int k = 0; k < 3; k++) preenche(x + (3 - k) * u, y + (k + 1) * u, u, u, cor);
   preenche(x, y + 4 * u, 5 * u, u, cor);
@@ -546,6 +556,13 @@ Cara caraDesejada() {
 }
 void poeCara(Cara c, unsigned long dur) { evento.cara = c; evento.ate = millis() + dur; caraDesenhada = false; }
 
+#ifdef MASCOTE
+#define LEG_TEXTO COR_TEXTO
+#define LEG_FUNDO COR_FUNDO
+#else
+#define LEG_TEXTO COR_OLHO
+#define LEG_FUNDO corRosto()
+#endif
 // Legenda: uma frase curta embaixo do rosto dizendo o que aconteceu. Aparece
 // junto com a cara do evento e some sozinha depois de uns segundos.
 int legenda = -1;                         // T_LEGENDA_... (-1: nenhuma)
@@ -554,9 +571,43 @@ bool legendaNaTela = false;               // desenhada (ou ainda por apagar)
 void poeLegenda(int t, unsigned long dur = 5000) { legenda = t; legendaAte = millis() + dur; legendaNaTela = false; }
 void cuidaLegenda() {                     // so na tela 0, depois do rosto
   if (legenda >= 0 && (long)(millis() - legendaAte) >= 0) legenda = -1;
-  if (legenda >= 0 && !legendaNaTela) { escreve(0, 202, 320, 30, FONTE_M, COR_OLHO, corRosto(), 1, tx((Txt)legenda)); legendaNaTela = true; }
-  else if (legenda < 0 && legendaNaTela) { preenche(0, 202, 320, 30, corRosto()); legendaNaTela = false; }
+  if (legenda >= 0 && !legendaNaTela) { escreve(0, 202, 320, 30, FONTE_M, LEG_TEXTO, LEG_FUNDO, 1, tx((Txt)legenda)); legendaNaTela = true; }
+  else if (legenda < 0 && legendaNaTela) { preenche(0, 202, 320, 30, LEG_FUNDO); legendaNaTela = false; }
 }
+#ifdef MASCOTE
+// Corpo do Clawd: o retangulo laranja da grade do rosto, bracinhos nos lados e
+// quatro perninhas (mesmas proporcoes do mini Clawd das cenas).
+void desenhaCorpo() {
+  uint16_t r = corRosto();
+  const int x = CEL_X, y = CEL_Y, w = 40 * CEL, h = 30 * CEL, u = 4 * CEL;
+  preenche(x, y, w, h, r);
+  preenche(x - u * 2, y + 13 * CEL, u * 2, 8 * CEL, r);            // bracos
+  preenche(x + w, y + 13 * CEL, u * 2, 8 * CEL, r);
+  const int PERNA[] = {1, 3, 6, 8};                                // pernas
+  for (int k = 0; k < 4; k++) preenche(x + PERNA[k] * u, y + h, u, 8 * CEL, r);
+}
+// Semaforo: vermelho = precisa de voce / problema, amarelo = trabalhando,
+// verde = livre ou pronto, tudo apagado = dormindo.
+static const int SEM_X = 280, SEM_Y0 = 62, SEM_DY = 48, SEM_R = 19;
+int semaforoNaTela = -1;
+int semaforoDe(Cara c) {
+  switch (c) {
+    case C_ESPERANDO: case C_SUSTO: case C_BRAVO: case C_PREOCUPADO: case C_TRISTE: case C_SUANDO: return 1;
+    case C_TRABALHANDO: case C_PENSANDO: case C_DESCONFIADO: case C_ZONZO: case C_CANSADO: return 2;
+    case C_NEUTRO: case C_FELIZ: case C_EMPOLGADO: case C_TERMINOU: return 3;
+    default: return 0;
+  }
+}
+void desenhaSemaforo(Cara c) {
+  int est = semaforoDe(c);
+  if (est == semaforoNaTela) return;
+  semaforoNaTela = est;
+  preenche(SEM_X - 28, SEM_Y0 - 32, 56, SEM_DY * 2 + 64, RGB565(0x2a, 0x29, 0x29));   // caixa
+  const uint16_t ACESA[3] = {RGB565(0xe5, 0x39, 0x35), RGB565(0xf5, 0xc0, 0x2c), RGB565(0x43, 0xc5, 0x59)};
+  const uint16_t APAGA[3] = {RGB565(0x4a, 0x1f, 0x1f), RGB565(0x4a, 0x3d, 0x12), RGB565(0x1c, 0x3d, 0x22)};
+  for (int k = 0; k < 3; k++) circulo(SEM_X, SEM_Y0 + k * SEM_DY, SEM_R, est == k + 1 ? ACESA[k] : APAGA[k]);
+}
+#endif
 // Comemoracao (commit, testes): a ferramenta seguinte nao tira a cara antes da hora.
 unsigned long celebraAte = 0;
 bool celebrando() { return celebraAte && (long)(millis() - celebraAte) < 0; }
@@ -606,6 +657,9 @@ void cuidaRosto() {
   Cara c = caraDesejada();
   unsigned long agora = millis();
   Expr x;
+#ifdef MASCOTE
+  desenhaSemaforo(c);
+#endif
 
   if (!caraDesenhada || c != caraNaTela) {
     if (caraDesenhada) somDaCara(caraNaTela, c);
@@ -649,7 +703,11 @@ void cuidaRosto() {
 void desenhaMoldura() {
   cTitulo.limpa(); cCtx.limpa(); cRelogio.limpa(); cRodape.limpa();
   if (pagina == 0) {
+#ifdef MASCOTE
+    limpaTela(COR_FUNDO); desenhaCorpo(); semaforoNaTela = -1;
+#else
     limpaTela(corRosto());
+#endif
     caraDesenhada = false; ultimaEsq = {}; ultimaDir = {}; ultimaExtra = {}; ultimaBoca = {};
     formaEsq = Forma(); formaDir = Forma(); bocaNaTela = BP_NENHUMA; esqueceExtras();
     legendaNaTela = false;
