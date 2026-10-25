@@ -83,6 +83,7 @@ static void wsTarefaTela(void*) {
 }
 
 inline void e32Inicia() {
+  Serial.setTxTimeoutMs(0);                // sem monitor aberto, o USB-CDC travaria cada print
   pinMode(WS_TRAVA, OUTPUT); digitalWrite(WS_TRAVA, HIGH);
   wsPainel.init();
   wsPainel.setRotation(1);                 // deitada, 280 x 240
