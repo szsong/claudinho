@@ -11,13 +11,35 @@ proprio PC chega aqui (127.0.0.1) e a placa so aceita eventos, nada perigoso.
 Requer: pip install bleak   (python3 -m venv ~/.claudinho/venv && ~/.claudinho/venv/bin/pip install bleak)
 No macOS, a primeira vez pede permissao de Bluetooth para o terminal/launchd.
 """
-import asyncio, json, sys, time
+import asyncio, json, os, sys, time
 from bleak import BleakClient, BleakScanner
 
 PORTA = 8765
 NOME = "Claudinho-"
 SERVICO = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
 RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+
+
+def ble_id():
+    """Sufixo do nome BLE da placa (ex.: 6961 em Claudinho-6961), de CLAUDINHO_BLE_ID em
+    ~/.claudinho/claudinho.env. Com ele, a ponte so conecta nessa placa (e nao em outro
+    aparelho que tambem fale o servico UART, como uma segunda placa na mesma mesa)."""
+    try:
+        for l in open(os.path.expanduser("~/.claudinho/claudinho.env")).read().splitlines():
+            if l.startswith("CLAUDINHO_BLE_ID="): return l.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return ""
+
+
+def combina(d, a):
+    nome = a.local_name or d.name or ""
+    alvo = ble_id()                      # relido a cada busca: vale sem reiniciar
+    if alvo:                             # a placa anuncia Claudinho-XXXX ou, as vezes, Claude-XXXX
+        return nome.endswith("-" + alvo) and nome.startswith(("Claudinho-", "Claude-"))
+    return nome.startswith(NOME) or SERVICO in [u.lower() for u in a.service_uuids]
+
+
 fila: "asyncio.Queue[bytes]" = asyncio.Queue(maxsize=50)
 estado = {"conectada": False}
 
@@ -73,7 +95,7 @@ async def ble():
     while True:
         try:
             log("procurando", NOME + "...")
-            disp = await BleakScanner.find_device_by_filter(lambda d, a: (a.local_name or d.name or "").startswith(NOME) or SERVICO in [u.lower() for u in a.service_uuids], timeout=15)
+            disp = await BleakScanner.find_device_by_filter(combina, timeout=15)
             if not disp:
                 continue
             log("achei", disp.name, disp.address)
