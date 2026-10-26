@@ -38,7 +38,7 @@ public:
       c.pin_cs = 5; c.pin_rst = 8; c.pin_busy = -1;
       c.memory_width = 240; c.memory_height = 320;          // o ST7789 tem 320 linhas; o vidro mostra 280
       c.panel_width = 240; c.panel_height = 280; c.offset_y = 20;
-      c.invert = true; c.readable = false; c.bus_shared = false;
+      c.invert = true; c.rgb_order = true; c.readable = false; c.bus_shared = false;   // rgb_order: vidro em BGR, sem isso o laranja sai azul
       painel.config(c); }
     { auto c = luz.config(); c.pin_bl = 15; c.invert = false; c.freq = 5000; c.pwm_channel = 0;
       luz.config(c); painel.setLight(&luz); }
