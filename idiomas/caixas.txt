@@ -58,6 +58,8 @@ velha.voce_ganhou       m24 320
 velha.eu_ganhei         m24 320
 velha.empate            m24 320
 legenda.*               m24 320
+msgt.*                  m38 230
+msg.*                   p26 300  %s=NotebookEdit
 genius.placar           m24 320
 
 cena.agente             p16 88

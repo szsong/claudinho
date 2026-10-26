@@ -24,7 +24,8 @@ SAIDA = AQUI.parent / "firmware" / "claudinho" / "textos.h"
 REF = "en"
 FORMATO = re.compile(r"%[-0-9.]*l?[dsuXxc%]")
 TOKENS = re.compile(r"%[-0-9.]*l?[dsuXxc%]|%")             # o "%" sozinho e um formato que o firmware nao usa
-FONTES = {"p16": (16, "Regular"), "m24": (24, "Bold"), "r32": (32, "Regular"), "g48": (48, "Bold")}
+FONTES = {"p16": (16, "Regular"), "m24": (24, "Bold"), "r32": (32, "Regular"), "g48": (48, "Bold"),
+          "p26": (26, "Regular"), "m38": (38, "Bold")}
 ALTURA_EM = 1.302          # DM Sans: ascendente + descendente, em "em" (o Nextion usa a altura toda)
 FOLGA = 0.97               # 3 % de margem: a fonte do Nextion e rasterizada diferente
 QUEBRA = 26                # o firmware quebra o detalhe do alerta em duas linhas perto de 26 letras

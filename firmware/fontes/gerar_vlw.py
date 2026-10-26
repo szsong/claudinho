@@ -7,6 +7,7 @@ Nextion, para o firmware nao precisar saber em que placa esta:
 
   0  DM Sans 16 px        1  DM Sans Bold 48 px     2  DM Sans Bold 24 px
   3  DM Sans 32 px        5  JetBrains Mono 16 px (7 px por letra, as cenas)
+  6  DM Sans 26 px        7  DM Sans Bold 38 px (so a caixa de status da Waveshare)
 
 "16 px" e a altura total da letra (ascendente + descendente), igual ao Nextion.
 Requer o Pillow (pip install pillow). Uso: python3 firmware/fontes/gerar_vlw.py
@@ -24,6 +25,10 @@ FONTES = [  # numero, arquivo, peso (fonte variavel), altura total em px
     (2, "DMSans.ttf", "Bold", 24),
     (3, "DMSans.ttf", "Regular", 32),
     (5, "JetBrainsMono-Regular.ttf", None, 16),
+    (6, "DMSans.ttf", "Regular", 26),     # mensagens da caixa de status (1,6x da 0)
+    (7, "DMSans.ttf", "Bold", 38),        # titulo da caixa de status (1,6x da 2)
+    (8, "DMSans.ttf", "Bold", 32),        # duracao do estado
+    (9, "DMSans.ttf", "Bold", 26),        # hora
 ]
 
 
@@ -80,7 +85,7 @@ def main():
         print("fonte %d: %s %s %d px -> %d bytes" % (num, arq, peso or "", alt, len(dados)))
     L.append("")
     L.append("// indice = numero da fonte do Nextion; nullptr = nao existe")
-    L.append("static const uint8_t* const FONTES_VLW[6] = {%s};" % ", ".join(nomes.get(i, "nullptr") for i in range(6)))
+    L.append("static const uint8_t* const FONTES_VLW[10] = {%s};" % ", ".join(nomes.get(i, "nullptr") for i in range(10)))
     L.append("")
     SAIDA.write_text("\n".join(L), encoding="ascii")
 

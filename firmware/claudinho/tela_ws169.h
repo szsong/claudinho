@@ -109,7 +109,7 @@ inline void e32Inicia() {
 }
 
 inline void e32UsaFonte(int f) {
-  if (f < 0 || f > 5 || !FONTES_VLW[f]) f = 0;
+  if (f < 0 || f > 9 || !FONTES_VLW[f]) f = 0;
   if (f == e32Fonte) return;
   e32.loadFont(FONTES_VLW[f]); e32Fonte = f;
 }

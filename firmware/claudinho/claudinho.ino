@@ -52,8 +52,8 @@
 
 // ---------------------------------------------------------------- cores 565
 #define RGB565(r, g, b) ((uint16_t)((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3)))
-static const uint16_t COR_FUNDO   = RGB565(0x36, 0x34, 0x35);
-static const uint16_t COR_BLOCO   = RGB565(0x42, 0x40, 0x41);
+static const uint16_t COR_FUNDO   = RGB565(0, 0, 0);
+static const uint16_t COR_BLOCO   = RGB565(0, 0, 0);
 static const uint16_t COR_OURO    = RGB565(0xd0, 0xad, 0x6c);
 static const uint16_t COR_ALERTA  = RGB565(0xd9, 0xa2, 0x5a);
 static const uint16_t COR_CRITICO = RGB565(0xc9, 0x6f, 0x6f);
@@ -75,6 +75,10 @@ static const int FONTE_P = 0;   // 16 px
 static const int FONTE_G = 1;   // 48 px
 static const int FONTE_M = 2;   // 24 px negrito
 static const int FONTE_32 = 3;  // 32 px
+static const int FONTE_MSG = 6; // 26 px (1,6x da P) -- mensagens da caixa de status
+static const int FONTE_HORA = 9; // 26 px negrito -- hora
+static const int FONTE_DUR = 8;  // 32 px negrito -- duracao do estado
+static const int FONTE_TIT = 7; // 38 px negrito (1,6x da M) -- titulo da caixa de status
 static const int LARG = 320;
 
 // ---------------------------------------------------------------- estado
@@ -92,6 +96,8 @@ Servidor servidor = SRV_INICIANDO;
 enum Cara { C_DORMINDO, C_NEUTRO, C_PENSANDO, C_TRABALHANDO, C_ESPERANDO, C_TERMINOU,
             C_FELIZ, C_EMPOLGADO, C_PREOCUPADO, C_SUSTO, C_ZONZO, C_CANSADO, C_SUANDO,
             C_BRAVO, C_TRISTE, C_DESCONFIADO };
+// Estado mostrado na caixa de status (so as placas com MASCOTE usam). Tambem antes das funcoes.
+enum Estado { E_DORME, E_PENSA, E_OCIOSO, E_ATENCAO, E_PROBLEMA };
 // Um olho pixelado, em CELULAS (nao pixels). Definido antes de qualquer funcao:
 // o Arduino gera protótipos no topo e precisa do tipo ja existente.
 struct Olho {
@@ -195,14 +201,21 @@ Campo cRodape  = {0, 168, LARG, 17, FONTE_P, 1, COR_FUNDO};
 
 // Tela 0: grade de celulas de 8 px (40 x 30 celulas). Centros dos olhos.
 #ifdef MASCOTE
-// Clawd inteiro (corpo 160x120 com bracos e pernas) no lado esquerdo e, a direita,
-// a coluna do semaforo. As celulas do rosto viram de 4 px e a grade de 40 x 30
-// comeca em (CEL_X, CEL_Y); o resto da tela (fundo escuro) fica livre.
-static const int CEL = 4, CEL_X = 44, CEL_Y = 30;
+// Clawd inteiro (corpo 96x72 com bracos e pernas) no lado esquerdo da caixa de
+// status (150 px = 5/8 da tela) e, a direita, o anel do contexto. As celulas do
+// rosto viram de 2,4 px e a grade de 40 x 30 comeca em (CEL_X, CEL_Y); embaixo da
+// caixa ficam as mensagens.
+static const int CELD = 24, CEL_X = 57, CEL_Y = 30;   // CELD: decimos de pixel por celula (2,4 px = 80 % do tamanho anterior)
+#define pxC(c) ((((c) + 1000) * CELD / 10) - 2400)   // piso de c * 2,4 (tambem para c negativo); macro: funcao aqui viraria o 1o prototipo do Arduino
 #else
-static const int CEL = 8, CEL_X = 0, CEL_Y = 0;
+static const int CELD = 80, CEL_X = 0, CEL_Y = 0;
+#define pxC(c) ((c) * CELD / 10)
 #endif
+#ifdef MASCOTE
+static const int OLHO_ESQ_X = 10, OLHO_DIR_X = 30, OLHO_Y = 11;   // em celulas: area dos olhos ~24 % mais estreita (25 em vez de 33 celulas de ponta a ponta)
+#else
 static const int OLHO_ESQ_X = 6, OLHO_DIR_X = 34, OLHO_Y = 11;    // em celulas: bem afastados, como no mascote; boca em y 21..24
+#endif
 
 // Tela 1: blocos completos
 struct BlocoJanela {
@@ -317,7 +330,10 @@ bool congelado() { return dados.ok && dados.at > 0 && relogioValido() && (long)t
 // por linha. Antes de desenhar, apaga so a caixa que ocupou no quadro anterior.
 // Alem dos olhos: boca (so nas emocoes fortes) e "extras" (pontinhos, !, ?,
 // gota, lagrima, zzz), cada um com a sua caixa.
-void celula(int cx, int cy, int w, int h, uint16_t cor) { preenche(CEL_X + cx * CEL, CEL_Y + cy * CEL, w * CEL, h * CEL, cor); }
+void celula(int cx, int cy, int w, int h, uint16_t cor) {
+  int x0 = CEL_X + pxC(cx), y0 = CEL_Y + pxC(cy);
+  preenche(x0, y0, CEL_X + pxC(cx + w) - x0, CEL_Y + pxC(cy + h) - y0, cor);
+}
 
 Caixa ultimaEsq, ultimaDir, ultimaExtra, ultimaBoca;
 // O que esta na tela agora (o simulador de PC compara com um desenho limpo).
@@ -427,7 +443,7 @@ void desenhaBoca(BocaP b, int dy = 0) {
 // Z em pixels, desenho 5x5 com unidade de u px (u = 4, 6, 8: pequeno, medio, grande)
 void zetaPx(int x, int y, int u, uint16_t cor) {
 #ifdef MASCOTE
-  x = CEL_X + x * CEL / 8; y = CEL_Y + y * CEL / 8; u = max(1, u * CEL / 8);   // coordenadas pensadas para celulas de 8 px
+  x = CEL_X + x * CELD / 80; y = CEL_Y + y * CELD / 80; u = max(1, u * CELD / 80);   // coordenadas pensadas para celulas de 8 px
 #endif
   preenche(x, y, 5 * u, u, cor);
   for (int k = 0; k < 3; k++) preenche(x + (3 - k) * u, y + (k + 1) * u, u, u, cor);
@@ -571,41 +587,163 @@ bool legendaNaTela = false;               // desenhada (ou ainda por apagar)
 void poeLegenda(int t, unsigned long dur = 5000) { legenda = t; legendaAte = millis() + dur; legendaNaTela = false; }
 void cuidaLegenda() {                     // so na tela 0, depois do rosto
   if (legenda >= 0 && (long)(millis() - legendaAte) >= 0) legenda = -1;
+#ifdef MASCOTE
+  return;                                 // a mensagem de baixo (cuidaStatus) mostra a legenda
+#endif
   if (legenda >= 0 && !legendaNaTela) { escreve(0, 202, 320, 30, FONTE_M, LEG_TEXTO, LEG_FUNDO, 1, tx((Txt)legenda)); legendaNaTela = true; }
   else if (legenda < 0 && legendaNaTela) { preenche(0, 202, 320, 30, LEG_FUNDO); legendaNaTela = false; }
 }
 #ifdef MASCOTE
 // Corpo do Clawd: o retangulo laranja da grade do rosto, bracinhos nos lados e
 // quatro perninhas (mesmas proporcoes do mini Clawd das cenas).
+int bracoY = 13;                                                   // altura dos bracos, em celulas (13 = parados)
 void desenhaCorpo() {
   uint16_t r = corRosto();
-  const int x = CEL_X, y = CEL_Y, w = 40 * CEL, h = 30 * CEL, u = 4 * CEL;
-  preenche(x, y, w, h, r);
-  preenche(x - u * 2, y + 13 * CEL, u * 2, 8 * CEL, r);            // bracos
-  preenche(x + w, y + 13 * CEL, u * 2, 8 * CEL, r);
-  const int PERNA[] = {1, 3, 6, 8};                                // pernas
-  for (int k = 0; k < 4; k++) preenche(x + PERNA[k] * u, y + h, u, 8 * CEL, r);
+  bracoY = 13;
+  celula(0, 0, 40, 30, r);
+  celula(-8, bracoY, 8, 8, r); celula(40, bracoY, 8, 8, r);        // bracos
+  const int PERNA[] = {4, 12, 24, 32};                             // pernas
+  for (int k = 0; k < 4; k++) celula(PERNA[k], 30, 4, 8, r);
 }
-// Semaforo: vermelho = precisa de voce / problema, amarelo = trabalhando,
-// verde = livre ou pronto, tudo apagado = dormindo.
-static const int SEM_X = 280, SEM_Y0 = 62, SEM_DY = 48, SEM_R = 19;
-int semaforoNaTela = -1;
-int semaforoDe(Cara c) {
+// ---- Caixa de status em volta do Clawd. A cor da moldura diz o que o Claude esta
+// fazendo: verde = pensando/trabalhando, azul-ceu = ocioso, amarelo = precisa de
+// voce, vermelho = problema, cinza = dormindo. A caixa vai ate a borda de cima,
+// da esquerda e da direita (borda fina, e grossa na direita) e tem 150 px de
+// altura (5/8 da tela); embaixo ficam as mensagens. No anel, o contexto (ctx %).
+static const uint16_t COR_ST[5] = {RGB565(0x6b, 0x69, 0x6a), RGB565(0x43, 0xc5, 0x59), RGB565(0x87, 0xce, 0xeb),
+                                   RGB565(0xf5, 0xc0, 0x2c), RGB565(0xe5, 0x39, 0x35)};
+static const int CX_ALT = 150, CX_BORDA = 5, CX_BORDA_D = 35, CX_RAIO = 40;   // borda fina 5 px, direita 35 px; raio 40 por fora e por dentro
+static const int RING_CX = 240, RING_R1 = 18, RING_R0 = 13;
+static const int RING_CY = CEL_Y + pxC(38) - RING_R1;   // a base do anel fica na altura dos pes do Clawd (pernas ate a celula 38)   // raios em y; em x ×8/7 (a tela e esticada 280/320)
+Estado estadoDe(Cara c) {
   switch (c) {
-    case C_ESPERANDO: case C_SUSTO: case C_BRAVO: case C_PREOCUPADO: case C_TRISTE: case C_SUANDO: return 1;
-    case C_TRABALHANDO: case C_PENSANDO: case C_DESCONFIADO: case C_ZONZO: case C_CANSADO: return 2;
-    case C_NEUTRO: case C_FELIZ: case C_EMPOLGADO: case C_TERMINOU: return 3;
-    default: return 0;
+    case C_DORMINDO: return E_DORME;
+    case C_PENSANDO: case C_TRABALHANDO: case C_DESCONFIADO: case C_ZONZO: return E_PENSA;
+    case C_ESPERANDO: return E_ATENCAO;
+    case C_BRAVO: case C_PREOCUPADO: case C_SUSTO: case C_TRISTE: return E_PROBLEMA;
+    default: return E_OCIOSO;
   }
 }
-void desenhaSemaforo(Cara c) {
-  int est = semaforoDe(c);
-  if (est == semaforoNaTela) return;
-  semaforoNaTela = est;
-  preenche(SEM_X - 28, SEM_Y0 - 32, 56, SEM_DY * 2 + 64, RGB565(0x2a, 0x29, 0x29));   // caixa
-  const uint16_t ACESA[3] = {RGB565(0xe5, 0x39, 0x35), RGB565(0xf5, 0xc0, 0x2c), RGB565(0x43, 0xc5, 0x59)};
-  const uint16_t APAGA[3] = {RGB565(0x4a, 0x1f, 0x1f), RGB565(0x4a, 0x3d, 0x12), RGB565(0x1c, 0x3d, 0x22)};
-  for (int k = 0; k < 3; k++) circulo(SEM_X, SEM_Y0 + k * SEM_DY, SEM_R, est == k + 1 ? ACESA[k] : APAGA[k]);
+// O que o ultimo evento contou, para as mensagens de baixo.
+char msgFerr[28] = "";   // ferramenta que pede permissao
+int msgAtencao = 0;      // 0 generico, 1 permissao, 2 pergunta, 3 plano
+int msgAcao = 0;         // ultima ferramenta: 1 codando, 2 terminal, 3 lendo, 4 agente, 5 web, 6 conversa
+int msgCausa = 0;        // problema: 1 ferramenta falhou, 2 teste falhou, 3 humor de bug
+bool msgJaEspera = false;
+void msgEvento(const char* tipo, const char* humor, const char* acao, const char* detalhe) {
+  if (!strcmp(tipo, "ferramenta")) {
+    static const char* const A[] = {"", "codando", "terminal", "lendo", "agente", "web", "conversa"};
+    for (int k = 1; k < 7; k++) if (!strcmp(acao, A[k])) msgAcao = k;
+    msgCausa = 0;
+  } else if (!strcmp(tipo, "prompt")) { msgAcao = 0; msgCausa = !strcmp(humor, "preocupado") ? 3 : 0; }
+  else if (!strcmp(tipo, "parou") || !strcmp(tipo, "inicio")) { msgAcao = 0; msgCausa = 0; }
+  else if (!strcmp(tipo, "erro")) msgCausa = 1;
+  else if (!strcmp(tipo, "teste_falhou")) msgCausa = 2;
+  else if (!strcmp(tipo, "atencao")) {
+    int novo = !strcmp(detalhe, "pergunta") ? 2 : !strcmp(detalhe, "plano") ? 3 : !strncmp(detalhe, "perm:", 5) ? 1 : 0;
+    const char* ferr = novo == 1 ? detalhe + 5 : "";
+    bool generico = novo == 0 || (novo == 1 && !ferr[0]);
+    if (!(msgJaEspera && generico)) { msgAtencao = novo; strlcpy(msgFerr, ferr, sizeof msgFerr); }   // aviso vago nao apaga um especifico
+  }
+}
+// Retangulo de cantos redondos com raio r em pixels da TELA: a imagem de 320 e mostrada em
+// 280, entao o raio horizontal e r*8/7 e o canto sai circular (e igual por fora e por dentro).
+void rrect(int x, int y, int w, int h, int r, uint16_t c) {
+  int rx = r * 8 / 7;
+  e32.fillRect(x + rx, y, w - 2 * rx, h, c);
+  e32.fillRect(x, y + r, w, h - 2 * r, c);
+  e32.fillEllipse(x + rx, y + r, rx, r, c); e32.fillEllipse(x + w - 1 - rx, y + r, rx, r, c);
+  e32.fillEllipse(x + rx, y + h - 1 - r, rx, r, c); e32.fillEllipse(x + w - 1 - rx, y + h - 1 - r, rx, r, c);
+}
+void desenhaCaixa(Estado est) {
+  const int r = CX_RAIO;
+  rrect(0, -2 * r, LARG, CX_ALT + 2 * r, r, COR_ST[est]);                       // so os cantos de baixo aparecem (os de cima ficam acima da tela)
+  rrect(CX_BORDA, CX_BORDA, LARG - CX_BORDA - CX_BORDA_D, CX_ALT - 2 * CX_BORDA, r, COR_FUNDO);
+  wsSujo = true;
+}
+int ringPct = -2; uint16_t ringCor = 0;
+void desenhaAnel() {
+  int pct = (dados.ok && dados.ctx > 0) ? constrain(dados.ctx, 0, 100) : -1;
+  uint16_t cor = pct < 0 ? COR_APAGADO : corPct(pct);
+  if (pct == ringPct && cor == ringCor) return;
+  ringPct = pct; ringCor = cor;
+  const int rx1 = RING_R1 * 8 / 7, rx0 = RING_R0 * 8 / 7;
+  char t[8]; if (pct >= 0) snprintf(t, sizeof t, "%d", pct); else strcpy(t, "--");   // sem o %: o anel ja diz
+  preenche(RING_CX - rx1 - 2, RING_CY - RING_R1 - 2, 2 * rx1 + 4, 2 * RING_R1 + 4, COR_FUNDO);
+  escreve(RING_CX - 15, RING_CY - 10, 30, 20, FONTE_P, pct < 0 ? COR_APAGADO : COR_TEXTO, COR_FUNDO, 1, t);
+  e32.fillEllipseArc(RING_CX, RING_CY, rx0, rx1, RING_R0, RING_R1, 0, 360, (uint16_t)COR_TRILHO);   // o anel por cima: apara os cantos das caixas de texto
+  if (pct > 0) e32.fillEllipseArc(RING_CX, RING_CY, rx0, rx1, RING_R0, RING_R1, -90, -90 + 3.6f * pct, cor);
+  wsSujo = true;
+}
+Campo mTitulo = {10, 150, 300, 38, FONTE_TIT, 0, COR_FUNDO};   // 150..240: titulo 38 + duas linhas de 26
+Campo mHora   = {172, 12, 88, 26, FONTE_HORA, 2, COR_FUNDO};    // dentro da caixa, canto de cima a direita
+Campo mTempo  = {172, 40, 88, 32, FONTE_DUR, 2, COR_FUNDO};     // duracao do estado (2x), logo abaixo da hora
+Campo mL1     = {10, 188, 300, 26, FONTE_MSG, 0, COR_FUNDO};
+Campo mL2     = {10, 214, 300, 26, FONTE_MSG, 0, COR_FUNDO};
+Estado estNaTela = (Estado)-1; unsigned long estDesde = 0;
+void limpaMensagens() { mTitulo.limpa(); mHora.limpa(); mTempo.limpa(); mL1.limpa(); mL2.limpa(); ringPct = -2; }
+void desenhaMensagens(Estado est) {
+  char l2[48] = "", tempo[12], hora[8];
+  const char* titulo; const char* l1;
+  switch (est) {
+    case E_DORME:  titulo = tx(T_MSGT_DORME);  l1 = tx(T_MSG_DORME); break;
+    case E_OCIOSO: titulo = tx(T_MSGT_OCIOSO); l1 = tx(T_MSG_OCIOSO); break;
+    case E_PENSA: {
+      titulo = tx(T_MSGT_PENSA);
+      static const Txt A[] = {T_MSG_PENSA, T_MSG_PENSA_CODANDO, T_MSG_PENSA_TERMINAL, T_MSG_PENSA_LENDO, T_MSG_PENSA_AGENTE, T_MSG_PENSA_WEB, T_MSG_PENSA_CONVERSA};
+      l1 = tx(A[msgAcao]); break;
+    }
+    case E_ATENCAO:
+      titulo = tx(T_MSGT_ATENCAO);
+      if (msgAtencao == 1) { l1 = tx(T_MSG_ATENCAO_PERM); if (msgFerr[0]) { char fn[17]; strlcpy(fn, msgFerr, sizeof fn); snprintf(l2, sizeof l2, tx(T_MSG_ATENCAO_PERM_D), fn); } else strlcpy(l2, tx(T_MSG_ATENCAO_PERM_X), sizeof l2); }
+      else if (msgAtencao == 2) { l1 = tx(T_MSG_ATENCAO_PERGUNTA); strlcpy(l2, tx(T_MSG_ATENCAO_PERGUNTA_D), sizeof l2); }
+      else if (msgAtencao == 3) { l1 = tx(T_MSG_ATENCAO_PLANO); strlcpy(l2, tx(T_MSG_ATENCAO_PLANO_D), sizeof l2); }
+      else { l1 = tx(T_MSG_ATENCAO_GERAL); strlcpy(l2, tx(T_MSG_ATENCAO_GERAL_D), sizeof l2); }
+      break;
+    default:
+      titulo = tx(T_MSGT_PROBLEMA);
+      if (msgCausa == 1) { l1 = tx(T_MSG_PROB_ERRO); strlcpy(l2, tx(T_MSG_PROB_ERRO_D), sizeof l2); }
+      else if (msgCausa == 2) { l1 = tx(T_MSG_PROB_TESTE); strlcpy(l2, tx(T_MSG_PROB_TESTE_D), sizeof l2); }
+      else if (msgCausa == 3) { l1 = tx(T_MSG_PROB_BUG); strlcpy(l2, tx(T_MSG_PROB_BUG_D), sizeof l2); }
+      else l1 = tx(T_MSG_PROB_GERAL);
+  }
+  // legenda do evento (Committed!, Tests passed!, Done!...) ocupa a segunda linha enquanto dura
+  if (legenda >= 0 && legenda != T_LEGENDA_PENSANDO && legenda != T_LEGENDA_TRABALHANDO && est != E_ATENCAO) strlcpy(l2, tx((Txt)legenda), sizeof l2);
+  unsigned long s = (millis() - estDesde) / 1000;      // curto, para caber a 32 px ao lado do Clawd
+  if (s < 60) snprintf(tempo, sizeof tempo, "%lus", s);
+  else if (s < 600) snprintf(tempo, sizeof tempo, "%lum%02lus", s / 60, s % 60);
+  else if (s < 3600) snprintf(tempo, sizeof tempo, "%lum", s / 60);
+  else snprintf(tempo, sizeof tempo, "%luh%02lum", s / 3600, (s / 60) % 60);
+  if (relogioValido()) horaStr(time(nullptr), hora, sizeof hora); else strcpy(hora, "--:--");
+  mTitulo.mostra(titulo, est == E_DORME ? COR_APAGADO : COR_ST[est]);
+  mHora.mostra(hora, COR_TEXTO);
+  mTempo.mostra(tempo, est == E_DORME ? COR_APAGADO : COR_ST[est]);
+  mL1.mostra(l1, COR_TEXTO); mL2.mostra(l2, COR_APAGADO);
+}
+// Chamada a cada volta na tela 0, antes do rosto: troca a moldura quando o estado
+// muda (e manda redesenhar o Clawd por cima), atualiza o anel e as mensagens.
+void cuidaStatus(Cara c) {
+  Estado est = estadoDe(c);
+  if (est != estNaTela) {
+    estNaTela = est; estDesde = millis();
+    desenhaCaixa(est); desenhaCorpo();
+    caraDesenhada = false; ultimaEsq = {}; ultimaDir = {}; ultimaExtra = {}; ultimaBoca = {};
+    formaEsq = Forma(); formaDir = Forma(); bocaNaTela = BP_NENHUMA; esqueceExtras();
+    ringPct = -2; mHora.limpa(); mTempo.limpa();       // a caixa foi apagada: hora e duracao voltam
+  }
+  // precisa de voce (amarelo): o Clawd mexe os bracos para cima e para baixo
+  if (est == E_ATENCAO) {
+    static const int BRACO[4] = {5, 12, 19, 12};
+    int y = BRACO[(millis() / 250) % 4];
+    if (y != bracoY) {
+      uint16_t r = corRosto();
+      celula(-8, bracoY, 8, 8, COR_FUNDO); celula(40, bracoY, 8, 8, COR_FUNDO);
+      bracoY = y;
+      celula(-8, y, 8, 8, r); celula(40, y, 8, 8, r);
+    }
+  }
+  desenhaAnel();
+  desenhaMensagens(est);
 }
 #endif
 // Comemoracao (commit, testes): a ferramenta seguinte nao tira a cara antes da hora.
@@ -639,7 +777,11 @@ void trataEvento(const char* tipo, const char* humor) {
   }
   else if (!strcmp(tipo, "erro"))       { poeCara(C_BRAVO, 3500); poeLegenda(T_LEGENDA_ERRO, 3500); }
   else if (!strcmp(tipo, "parou"))      { if (!celebrando()) { poeCara(C_TERMINOU, 5000); poeLegenda(T_LEGENDA_PRONTO); } pedeConsumo(15000, true, false); }
-  else if (!strcmp(tipo, "atencao"))    { poeCara(C_ESPERANDO, 120000); poeLegenda(T_LEGENDA_ATENCAO, 8000); }
+  else if (!strcmp(tipo, "atencao"))    { poeCara(C_ESPERANDO, 120000);
+#ifndef MASCOTE
+    poeLegenda(T_LEGENDA_ATENCAO, 8000);
+#endif
+  }
   else if (!strcmp(tipo, "compact"))    { poeCara(C_ZONZO, 5000); poeLegenda(T_LEGENDA_COMPACT); }
   // commit e testes: o hook ve o comando no PC e manda so a palavra
   else if (!strcmp(tipo, "commit"))       { poeCara(C_EMPOLGADO, 5000); poeLegenda(T_LEGENDA_COMMIT); celebraAte = millis() + 5000; }
@@ -658,7 +800,7 @@ void cuidaRosto() {
   unsigned long agora = millis();
   Expr x;
 #ifdef MASCOTE
-  desenhaSemaforo(c);
+  cuidaStatus(c);
 #endif
 
   if (!caraDesenhada || c != caraNaTela) {
@@ -704,7 +846,7 @@ void desenhaMoldura() {
   cTitulo.limpa(); cCtx.limpa(); cRelogio.limpa(); cRodape.limpa();
   if (pagina == 0) {
 #ifdef MASCOTE
-    limpaTela(COR_FUNDO); desenhaCorpo(); semaforoNaTela = -1;
+    limpaTela(COR_FUNDO); estNaTela = (Estado)-1; limpaMensagens();   // cuidaStatus desenha a caixa e o Clawd
 #else
     limpaTela(corRosto());
 #endif
@@ -2123,7 +2265,7 @@ void miniOlhos(int dx) {             // -1 esquerda, 0 frente, 1 direita (lendo)
 #include "cenas.h"   // os roteiros (arquivos do editor e sessoes do terminal), gerados por scripts/gera-cenas.py
 int sorteiaOutro(int n, int antes) { if (antes < 0 || n < 2) return random(n); int k = random(n - 1); return k >= antes ? k + 1 : k; }
 static const int ED_TOPO = 22, ED_X = 30, ED_LINHAS = 12;
-static const uint16_t ED_FUNDO = RGB565(30, 30, 30);
+static const uint16_t ED_FUNDO = RGB565(0, 0, 0);
 int edTopo = 0, edCol = 0, edEspera = 0, edPre = 0;   // edPre: letras ja digitadas do preambulo (-1 = no editor)
 int edArq = -1;                                       // arquivo aberto: cada cena sorteia outro
 char ED_PRE[24];                                      // "code <arquivo>"
@@ -2203,7 +2345,7 @@ void edPasso() {
 
 // ---- terminal: sessoes (cenas.h) sorteadas uma atras da outra; "$" no comeco e comando digitado
 static const int TE_TOPO = 24, TE_X = 6, TE_LINHAS = 12;
-static const uint16_t TE_FUNDO = RGB565(8, 8, 8), TE_VERDE = RGB565(60, 220, 90), TE_CLARO = RGB565(150, 255, 170);
+static const uint16_t TE_FUNDO = RGB565(0, 0, 0), TE_VERDE = RGB565(60, 220, 90), TE_CLARO = RGB565(150, 255, 170);
 int teSes = -1, teLinha = 0, teCol = 0, teN = 0; const char* teVis[TE_LINHAS];
 
 int teY(int row) { return TE_TOPO + row * MONO_LH; }
@@ -2306,7 +2448,7 @@ void mxPasso() {
 // ---- organograma: o Claude em cima, os agentes surgindo embaixo
 static const int AG_CX[3] = {52, 160, 268}, AG_Y = 126;
 int agN = 0, agPulo = 0; unsigned long agPuloAte = 0;
-uint16_t agCorBloco() { return RGB565(0x42, 0x40, 0x41); }
+uint16_t agCorBloco() { return COR_BLOCO; }
 void agCaixa(int i) {
   int cx = AG_CX[i];
   preenche(cx - 1, 98, 3, AG_Y - 98, COR_OURO);
@@ -2484,6 +2626,9 @@ void cuidaCena() {
 // Evento de ferramenta: abre, renova ou troca a cena. Devolve true se a cena
 // cuidou do evento (entao a cara de trabalhando fica para depois).
 bool cenaPorFerramenta(bool forca) {   // forca: teste (claudinho.sh cena) troca na hora
+#ifdef MASCOTE
+  return false;                          // caixa de status: nada de cena em tela cheia
+#endif
   int s = cenaDe(acaoEvento);
   if (pagina == 10) {
     paginaDesde = millis();
@@ -2856,6 +3001,10 @@ void aplicaEvento(JsonDocument& doc) {
   if (!relogioValido() && doc["enviado_em"].is<long>()) ajustaRelogio(doc["enviado_em"].as<long>());
   const char* tipo = doc["tipo"] | ""; const char* humor = doc["humor"] | ""; const char* sessao = doc["sessao"] | "";
   strlcpy(acaoEvento, doc["acao"] | "", sizeof acaoEvento); forcaCena = doc["forca"] | false;
+#ifdef MASCOTE
+  msgJaEspera = caraDesejada() == C_ESPERANDO;
+  msgEvento(tipo, humor, acaoEvento, doc["detalhe"] | "");
+#endif
   if (!strcmp(tipo, "fim")) tiraSessao(sessao); else marcaSessao(sessao);
   dados.n = contaSessoes();
   if (strcmp(tipo, "fim") != 0) dados.at = time(nullptr);   // atividade = sinal de vida

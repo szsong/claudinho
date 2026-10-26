@@ -9,7 +9,8 @@
   // Waveshare ESP32-S3-Touch-LCD-1.69: tela ST7789 240x280 + toque CST816 na
   // propria placa (tela_ws169.h), sem Nextion. Sem som nem bateria por enquanto.
   #define PLACA_NOME  "ws169s3"
-  #define MASCOTE      // Clawd inteiro + semaforo na tela de repouso
+  #define MASCOTE      // Clawd inteiro numa caixa de status colorida + mensagens, na tela de repouso
+  #define FUSO  "PST8PDT,M3.2.0,M11.1.0"   // Pacifico (EUA); a hora vem do PC pela ponte
   #define NEXTION_TX  -1
   #define NEXTION_RX  -1
   #define WIFI_POTENCIA_REDUZIDA 0
@@ -51,6 +52,8 @@
 #define MANUT_JANELA_MS   120000  // depois do toque, quanto tempo /ota e /tft ficam liberados
 
 // Fuso (POSIX TZ) e relogio por NTP.
+#ifndef FUSO
 #define FUSO  "<-03>3"            // Brasilia; ex.: Lisboa "WET0WEST,M3.5.0/1,M10.5.0"
+#endif
 #define NTP_1 "pool.ntp.org"
 #define NTP_2 "time.google.com"
