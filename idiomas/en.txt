@@ -803,3 +803,35 @@ hms.310 = Hotend cooling fan slow; check and clean
 hms.311 = Print file unreadable; resend task
 # Bambu: The extruder servo motor has a short-circuit. It may have failed.
 hms.312 = Extruder motor short circuit
+
+# Status box (Waveshare board): headline, detail lines under the mascot, ctx ring label.
+msgt.dorme = Asleep
+msgt.ocioso = Idle
+msgt.pensa = Thinking...
+msgt.atencao = Needs input
+msgt.problema = Problem
+msg.dorme = No active session
+msg.ocioso = Waiting for prompt
+msg.pensa = Working...
+msg.pensa_codando = Editing code
+msg.pensa_terminal = Running a command
+msg.pensa_lendo = Reading files
+msg.pensa_agente = Running a subagent
+msg.pensa_web = Searching the web
+msg.pensa_conversa = Asking another AI
+msg.atencao_geral = Claude is waiting
+msg.atencao_geral_d = Check the terminal
+msg.atencao_perm = Permission request
+msg.atencao_perm_d = Allow %s?
+msg.atencao_perm_x = Approve in terminal
+msg.atencao_pergunta = Question for you
+msg.atencao_pergunta_d = Answer in terminal
+msg.atencao_plano = Plan ready
+msg.atencao_plano_d = Approve in terminal
+msg.prob_erro = A tool call failed
+msg.prob_erro_d = Claude may recover
+msg.prob_teste = Tests failed
+msg.prob_teste_d = See the output
+msg.prob_bug = Sounds like a bug
+msg.prob_bug_d = Time to dig in
+msg.prob_geral = Check the terminal

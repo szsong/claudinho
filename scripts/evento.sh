@@ -61,9 +61,23 @@ if tipo == "teste":   # passou? com "| tail" o codigo de saida e do tail: confer
     saida=str(d.get("tool_response") or "")
     ruim=re.search(r"\b[1-9][0-9]* (failed|failing|failures?|errors?)\b|\bFAILED\b|^FAIL\b|test result: FAILED|BUILD FAILURE|Tests:.*\bfailed", saida, re.M)
     tipo="teste_falhou" if ruim else "teste_ok"
-print(tipo)' 2>/dev/null || true)
+print(tipo)
+# Detalhe do que o Claude espera de voce (so palavras fixas e o NOME da ferramenta, nunca argumentos):
+# pergunta (AskUserQuestion), plano (ExitPlanMode) ou perm:<ferramenta> (pedido de permissao).
+def nome(n): return re.sub(r"[^A-Za-z0-9_.:-]", "", str(n).split("__")[-1])[:24]
+det=""
+ev=d.get("hook_event_name") or ""
+if f == "AskUserQuestion" and ev == "PreToolUse": det="pergunta"
+elif f == "ExitPlanMode" and ev == "PreToolUse": det="plano"
+elif ev == "PermissionRequest" and f: det="perm:" + nome(f)
+elif d.get("notification_type") == "permission_prompt":
+    m=re.search(r"permission to use ([A-Za-z0-9_.:-]+)", str(d.get("message") or ""))
+    det="perm:" + (nome(m.group(1)) if m else "")
+print(det)' 2>/dev/null || true)
 sessao=$(printf '%s\n' "$leitura" | sed -n 1p); texto=$(printf '%s\n' "$leitura" | sed -n 2p); acao=$(printf '%s\n' "$leitura" | sed -n 3p)
-comando=$(printf '%s\n' "$leitura" | sed -n 4p)
+comando=$(printf '%s\n' "$leitura" | sed -n 4p); detalhe=$(printf '%s\n' "$leitura" | sed -n 5p)
+# a pergunta e a aprovacao do plano esperam por voce: viram "atencao" (com o detalhe)
+if [ "$tipo" = ferramenta ]; then case "$detalhe" in pergunta|plano) tipo=atencao; acao="" ;; esac; fi
 # feito: so interessa commit e teste. erro: um teste que falhou vira teste_falhou.
 if [ "$tipo" = feito ]; then
   case "$comando" in commit|teste_ok|teste_falhou) tipo=$comando; acao="" ;; *) exit 0 ;; esac
@@ -82,8 +96,8 @@ fi
 # Segredo e corpo vao pela entrada padrao do curl (-K -), fora da linha de comando.
 # Registro curto (eventos.log na pasta de dados, ultimas 200 linhas): hora, tipo
 # e a resposta da placa. Nada do prompt. Serve para o "ele nao reagiu".
-{ r=$(printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\ndata = "{\\"tipo\\":\\"%s\\",\\"humor\\":\\"%s\\",\\"acao\\":\\"%s\\",\\"sessao\\":\\"%s\\"}"\n' \
-    "$TOKEN" "$tipo" "$humor" "$acao" "$sessao" | curl -s -m 2 -o /dev/null -w '%{http_code}' -X POST "http://$IP/evento" -K - )
+{ r=$(printf 'header = "Authorization: Bearer %s"\nheader = "Content-Type: application/json"\ndata = "{\\"tipo\\":\\"%s\\",\\"humor\\":\\"%s\\",\\"acao\\":\\"%s\\",\\"detalhe\\":\\"%s\\",\\"sessao\\":\\"%s\\"}"\n' \
+    "$TOKEN" "$tipo" "$humor" "$acao" "$detalhe" "$sessao" | curl -s -m 2 -o /dev/null -w '%{http_code}' -X POST "http://$IP/evento" -K - )
   L="$DADOS/eventos.log"; printf '%s %s %s\n' "$(date '+%m-%d %H:%M:%S')" "$tipo" "${r:-000}" >> "$L"
   [ "$(wc -l < "$L")" -gt 400 ] && tail -n 200 "$L" > "$L.tmp" && mv "$L.tmp" "$L"; } >/dev/null 2>&1 &
 exit 0
